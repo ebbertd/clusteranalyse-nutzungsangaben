@@ -1,0 +1,329 @@
+---
+title: "Cluster Analysis"
+author: "Daniel Ebbert"
+date: "`r format(Sys.Date(), '%d.%m.%Y')`"
+output: html_document
+bibliography: Method.bib
+---
+
+```{r setup, include = FALSE}
+# Set the knitr options
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      fig.path = "fig/")
+
+# Load the required libraries
+library(cluster)
+library(dplyr)
+library(labelled)
+library(knitr)
+library(tibble)
+library(stringr)
+library(haven)
+library(anchors)
+library(ggplot2)
+library(scales)
+library(reshape2)
+library(forcats)
+library(factoextra)
+library(fpc)
+library(conover.test)
+library(chisq.posthoc.test)
+
+# Source self written functions for this project as well as of the data submodule
+source(paste(getwd(), "/R/00_functions.R", sep = ""))
+source(paste(getwd(), "/data/R/functions.R", sep = ""))
+
+# Set seed for reproducability
+set.seed(5446)
+```
+
+## Load the data
+
+First the original data is loaded, merged and cleaned.
+
+```{r load_data}
+# Merge and clean the datasets
+source(paste(getwd(), "/R/01_merge-datasets.R", sep = ""))
+```
+
+## Average age and gender distribution
+
+The average age in the full data set is: `r round(overall_average_age, digits =2)`
+The standard deviation in the full data set is: `r round(overall_sd_age, digits =2)`
+The gender distribution in the full data set is as follows:
+```{r gender_distribution}
+kable(gender_distribution)
+```
+
+## Distance matrix
+
+Because the variables that are supposed to be part of the cluster analysis are not all continuous a different distance measure is needed. The used distance measure for this case is Gower distance [@Gower1971]. In order to be able to run a cluster analysis with a different distance measure one has to create a distance matrix using this distance matrix. Therefore, the next step is to create a distance matrix using Gower distance.
+
+```{r gower}
+# Create the distance matrix
+source(paste(getwd(), "/R/02_gower-distance.R", sep = ""))
+
+# Show a summary of the distance matrix
+summary(gower_dist)
+```
+
+## Number of clusters
+
+To determine the number of clusters a cluster analysis using PAM has been done with k ranging from 2 till 10. For each k the silhouette coefficient [@Rousseeuw1987] is calculated and the results plotted in the so called silhouette plot.
+
+```{r silhouette-plot}
+# Run the multiple cluster analysis for the silhouette plot
+source(paste(getwd(), "/R/03_silhouette-plot.R", sep = ""))
+
+kable(sil_width_df)
+```
+
+The silhouette coefficient is highest at k = 3 and k = 5. The k = 5 clusters solution is more meaningful. Therefore, 5 clusters are extracted.
+
+```{r set_n_clusters}
+# Set the number of clusters
+n_clusters <- 5
+```
+
+## Cluster analysis
+
+Next the cluster analysis is run, the used method is Partitioning Around Medoids [@Kaufman1990].
+
+```{r pam}
+# Run the cluster analysis using PAM
+source(paste(getwd(), "/R/04_pam.R", sep = ""))
+```
+
+## Aggregate clustering variables
+
+For the following analysis and interpretation the order of the clusters is quite confusing. Therefore the order of the clusters is changed to a meaningful order.
+
+```{r cluster_order}
+# Run the cluster analysis using PAM
+source(paste(getwd(), "/R/05_change_cluster_order.R", sep = ""))
+```
+
+In this step the data that went into the cluster analysis is aggregated by cluster and shown in a table:
+
+```{r results_aggregate}
+# Aggregate the data for each cluster
+source(paste(getwd(), "/R/06_aggregate.R", sep = ""))
+
+# Show the data for each cluster in a table
+kable(cluster_results, row.names = FALSE)
+```
+
+## Test for significant differences on each cluster variable
+
+This step tests for a significant difference on each cluster variable. For continious variables the Kruskal-Wallis Rank Sum Test [@Kruskal1952] is used and for categorical variables Pearson's Chi-squared Test for Count Data [@Pearson1900] with Monte Carlo simulation [@Hope1968] is used. The number of repetitions used in the Monte Carlo simulation is 8000 [@Mundform2011].
+
+```{r cluster_variables_significance}
+# Test for significant difference on each cluster variable
+source(paste(getwd(), "/R/07_tests_for_difference_in_cluster_variables.R", sep = ""))
+
+# Show the test result for each variable in a table
+kable(difference_tests_summary_cluster_variables)
+```
+
+For the variables where the difference between the clusters is significant a post-hoc test is conducted. For continious variables the post-hoc test used is the Conover-Iman test [@Conover1979] and for the categorical variables the residuals from the Pearson's Chi-squared Test for Count Data with Monte Carlo simulation is used [@Beasley1995]. Based on the residuals a p value is calculated. For this proces a self written R package called chisq.posthoc.test is used. In both cases the p values are adjusted using the Bonferroni method [@Dunn1961].
+
+**Conover-Iman test for: `r cluster_results$Variable[1]`**
+```{r difference_test_Q5_1}
+# Conover-Iman test to determine which of the clusters differ.
+conover.test(cluster_data$Q5_1,
+             cluster_data$cluster,
+             method = "bonferroni",
+             altp = TRUE)
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r cluster_results$Variable[2]`**
+```{r difference_test_Q5_2}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(cluster_data$Q5_2, cluster_data$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r cluster_results$Variable[3]`**
+```{r difference_test_Q5_4}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(cluster_data$Q5_4, cluster_data$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Conover-Iman test for: `r cluster_results$Variable[4]`**
+```{r difference_test_Q5_6}
+# Conover-Iman test to determine which of the clusters differ.
+conover.test(cluster_data$Q5_6,
+             cluster_data$cluster,
+             method = "bonferroni",
+             altp = TRUE)
+```
+
+**Conover-Iman test for: `r cluster_results$Variable[5]`**
+```{r difference_test_Q6_3}
+# Conover-Iman test to determine which of the clusters differ.
+conover.test(cluster_data$Q6_3,
+             cluster_data$cluster,
+             method = "bonferroni",
+             altp = TRUE)
+```
+
+## Semester distribution
+
+In this step the distribution of the students in the clusters over the semesters in which the data was gathered is shown.
+```{r semester_count}
+# Count the number of students by semester and by cluster
+source(paste(getwd(), "/R/08_semester_count.R", sep = ""))
+
+# Show the results in a table
+kable(semester_count, row.names = FALSE)
+```
+
+Test if any semester is significantly more present in one of the semesters during which the data was gathered using Pearson's Chi-squared Test for Count Data.
+
+```{r semester_count_sig_distribution}
+# Pearson's Chi-squared test for the distribution of the semesters over the clusters
+chisq.test(subset_df$Semester, subset_df$cluster)
+```
+
+## Aggregate dependent variables
+
+In this step some variables from the original data set are added and aggregated by cluster to aid the interpretation.
+
+```{r dependent}
+# Aggregate the additional variables for the interpretation
+source(paste(getwd(), "/R/09_filter.R", sep = ""))
+
+# Show the data for each cluster in a table
+kable(dependent_df, row.names = FALSE)
+```
+
+# Test for significant difference in dependent variables
+
+This step tests for a significant difference on each dependent variable. For continious variables the Kruskal-Wallis Rank Sum Test is used and for categorical variables Pearson's Chi-squared Test for Count Data with Monte Carlo simulation is used.
+
+```{r dependent_variables_significance}
+# Test for significant difference on each dependent variable
+source(paste(getwd(), "/R/10_tests_for_difference_in_dependent_variables.R", sep = ""))
+
+# Show the test result for each variable in a table
+kable(difference_tests_summary_dependent_variables)
+```
+
+For the variables where the difference between the clusters is significant a post-hoc test is conducted. For continious variables the post-hoc test used is the Conover-Iman test and for the categorical variables the residuals from the Pearson's Chi-squared Test for Count Data with Monte Carlo simulation is used. Based on the residuals a p value is calculated. For this proces a self written R package called chisq.posthoc.test is used. In both cases the p values are adjusted using the Bonferroni method.
+
+**Conover-Iman test for: `r dependent_df$Variable[2]`**
+```{r difference_test_Q2_2}
+# Conover-Iman test to determine which of the clusters differ.
+conover.test(
+  dependent_df_raw$Q2_2,
+  dependent_df_raw$cluster,
+  method = "bonferroni",
+  altp = TRUE
+)
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r dependent_df$Variable[3]`**
+```{r difference_test_Q3_1}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(dependent_df_raw$Q3_1, dependent_df_raw$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Conover-Iman test for: `r dependent_df$Variable[5]`**
+```{r difference_test_Q8_1}
+# Conover-Iman test to determine which of the clusters differ.
+conover.test(
+  as.numeric(dependent_df_raw$Q8_1),
+  dependent_df_raw$cluster,
+  method = "bonferroni",
+  altp = TRUE
+)
+```
+
+**Compare the answers about the learning process by cluster**
+```{r lernprozess}
+# Get the answers about the learning proces per cluster
+source(paste(getwd(), "/R/11_proces.R", sep = ""))
+
+# Show the data about the learning process for each cluster in a table
+kable(learn_df, row.names = FALSE)
+```
+
+**Test significance for learning proces variables**
+
+```{r learning_variables_significance}
+# Test for significant difference on each dependent variable
+source(paste(getwd(), "/R/12_tests_for_difference_in_learning_variables.R", sep = ""))
+
+# Show the test result for each variable in a table
+kable(difference_tests_summary_learning_variables)
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r learn_df$Variable[1]`**
+```{r difference_test_Q6_1_1}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(learn_df_raw$Q6_1_1, learn_df_raw$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r learn_df$Variable[2]`**
+```{r difference_test_Q6_1_2}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(learn_df_raw$Q6_1_2, learn_df_raw$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r learn_df$Variable[3]`**
+```{r difference_test_Q6_1_3}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(learn_df_raw$Q6_1_3, learn_df_raw$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+**Pearson's Chi-squared Test for Count Data with Monte Carlo simulation residuals analysis for: `r learn_df$Variable[5]`**
+```{r difference_test_Q6_1_5}
+# Run a posthoc test based on the residuals to determine which clusters differ
+kable(chisq.posthoc.test(
+  table(learn_df_raw$Q6_1_5, learn_df_raw$cluster),
+  method = "bonferroni",
+  simulate.p.value = TRUE,
+  B = 8000
+))
+```
+
+# Session Info
+
+Show the session info to state which packages have been used for the analysis.
+
+```{r session}
+# Show the session info
+sessionInfo()
+```
+
+# References
